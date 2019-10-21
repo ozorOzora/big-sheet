@@ -21,6 +21,7 @@ interface Chunk {
 export class AppComponent extends DataSource<Array<string>>{
 
   private _file: File;
+  private _headers: Array<string>;
   private _rows: Array<Chunk>;
   private _length: number;
   private _dataStream = new BehaviorSubject<Array<string>>([]);
@@ -45,23 +46,23 @@ export class AppComponent extends DataSource<Array<string>>{
 
     this._csvService.readFile(this._file).subscribe(
       (result: ParseResult) => {
+        this._headers = result.meta.fields;
 
         if (!currentChunk.end) {
           currentChunk.end = result.meta.cursor;
           currentChunk.lastRow = currentChunk.firstRow;
         }
         else if (currentChunk.end != result.meta.cursor) {
-          console.log(currentChunk);
           currentChunk = {
             start: currentChunk.end + 1,
             firstRow: currentChunk.lastRow + 1,
             end: result.meta.cursor,
             lastRow: currentChunk.lastRow + 1
           };
+        } else {
+          currentChunk.lastRow++;
         }
-        currentChunk.lastRow++;
-        this._rows.push(currentChunk); // Ici une nouvelle copie de chunk est enregistrée pour chaque indice, peut-être utiliser une référence par chunk pour meilleures perf?
-
+        this._rows.push(currentChunk); // Ici on utilise une référence par chunk
       },
       err => { throw err },
       () => {
@@ -79,34 +80,32 @@ export class AppComponent extends DataSource<Array<string>>{
     this._subscription = collectionViewer.viewChange.pipe(
       debounceTime(100),
       tap(range => {
+        console.log(range);
         if (!firstRow && !lastRow) {
           firstRow = this._rows[range.start].firstRow;
-          lastRow = this._rows[range.end].lastRow;
+          lastRow = this._rows[range.end - 1].lastRow;
         }
       }),
-      filter(range => {
-        console.log(range.start <= firstRow || range.end >= lastRow);
-        return range.start <= firstRow || range.end >= lastRow; //Bon en gros j'en suis la
-      }),
+      filter(range => range.start <= firstRow || range.end >= lastRow),
       flatMap((range: { start: number; end: number; }) => {
-        //console.log("hello", range, this._rows);
         chunkStart = this._rows[range.start].start;
         firstRow = this._rows[range.start].firstRow;
-        chunkEnd = this._rows[range.end].end;
-        lastRow = this._rows[range.end].lastRow;
+        chunkEnd = this._rows[range.end - 1].end;
+        lastRow = this._rows[range.end - 1].lastRow;
         console.log("range:", range, "\nfirstRow:", firstRow, "lastRow:", lastRow, "\nchunkStart:", chunkStart, "\nchunkEnd:", chunkEnd);
         return this._csvService.readChunk(this._file, chunkStart, chunkEnd);
       })
     ).subscribe((result: ParseResult) => {
-      console.log(result);
-      //console.log(this._length, lastRow);
-      //TODO Ceci est un brouillon, revoir pour performances. Peut etre ajouter un index de rang pour debut et fin de chunk
-      //let firstRowIndex = this._rows.findIndex(r => r.start == chunkStart);
-      //let lastRowIndex = this._rows.findIndex(r => r.end > chunkEnd);
       let data = Array(this._length).fill(null);
-      data.splice(firstRow, result.data.length, ...result.data);
-      console.log(data);
-      this._dataStream.next( data );
+      const newData = result.data.map((d) => {
+        const keys = Object.keys(d);
+        let datum = {};
+        for (var i = 0; i < keys.length; ++i)
+          datum[this._headers[i]] = d[keys[i]];
+        return datum;
+      });
+      data.splice(firstRow, result.data.length, ...newData);
+      this._dataStream.next(data);
     });
 
     return this._dataStream;
