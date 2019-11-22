@@ -27,7 +27,7 @@ export class AppComponent extends DataSource<Array<string>>{
   private _dataStream = new BehaviorSubject<Array<string>>([]);
   private _subscription = new Subscription();
 
-  private _dataArray = [];
+  private _lineIndicies = [];
 
   constructor(private _csvService: CsvService) {
     super();
@@ -35,79 +35,34 @@ export class AppComponent extends DataSource<Array<string>>{
 
   fileUploaded(files: FileList) {
 
+    console.time("this");
     this._file = files[0];
-    this._rows = [];
-    let currentChunk: Chunk = {
-      start: 0,
-      end: null,
-      firstRow: 0,
-      lastRow: null
-    };
-
-    this._csvService.readFile(this._file).subscribe(
-      (result: ParseResult) => {
-        this._headers = result.meta.fields;
-
-        if (!currentChunk.end) {
-          currentChunk.end = result.meta.cursor;
-          currentChunk.lastRow = currentChunk.firstRow;
-        }
-        else if (currentChunk.end != result.meta.cursor) {
-          currentChunk = {
-            start: currentChunk.end + 1,
-            firstRow: currentChunk.lastRow + 1,
-            end: result.meta.cursor,
-            lastRow: currentChunk.lastRow + 1
-          };
-        } else {
-          currentChunk.lastRow++;
-        }
-        this._rows.push(currentChunk); // Ici on utilise une référence par chunk
-      },
-      err => { throw err },
-      () => {
-        this._length = this._rows.length;
-        this._dataStream.next(Array(this._length).fill(null));
-      }
-    );
+    this._csvService.getLineIndices(files[0]).then(lineIndicies => {
+      console.timeEnd("this");
+      this._lineIndicies = lineIndicies;
+      this._dataStream.next(Array(this._lineIndicies.length).fill(null));
+    })
 
   }
 
   connect(collectionViewer: CollectionViewer): Observable<Array<any>> {
-
-    let chunkStart, chunkEnd, firstRow, lastRow;
-
+    let firstRow;
     this._subscription = collectionViewer.viewChange.pipe(
       debounceTime(100),
-      tap(range => {
-        console.log(range);
-        if (!firstRow && !lastRow) {
-          firstRow = this._rows[range.start].firstRow;
-          lastRow = this._rows[range.end - 1].lastRow;
-        }
-      }),
-      filter(range => range.start <= firstRow || range.end >= lastRow),
-      flatMap((range: { start: number; end: number; }) => {
-        chunkStart = this._rows[range.start].start;
-        firstRow = this._rows[range.start].firstRow;
-        chunkEnd = this._rows[range.end - 1].end;
-        lastRow = this._rows[range.end - 1].lastRow;
-        console.log("range:", range, "\nfirstRow:", firstRow, "lastRow:", lastRow, "\nchunkStart:", chunkStart, "\nchunkEnd:", chunkEnd);
-        return this._csvService.readChunk(this._file, chunkStart, chunkEnd);
-      })
+      tap((range: { start: number; end: number; }) => { console.log("connect"); firstRow = range.start; }),
+      flatMap((range: { start: number; end: number; }) => this._csvService.readChunk(this._file, this._lineIndicies[range.start], this._lineIndicies[range.end+1]))
     ).subscribe((result: ParseResult) => {
       let data = Array(this._length).fill(null);
       const newData = result.data.map((d) => {
         const keys = Object.keys(d);
         let datum = {};
-        for (var i = 0; i < keys.length; ++i)
-          datum[this._headers[i]] = d[keys[i]];
+        //for (var i = 0; i < keys.length; ++i)
+        //  datum[this._headers[i]] = d[keys[i]];
         return datum;
       });
       data.splice(firstRow, result.data.length, ...newData);
       this._dataStream.next(data);
     });
-
     return this._dataStream;
   }
 
