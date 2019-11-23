@@ -6,65 +6,45 @@ import * as Papa from 'papaparse';
   providedIn: 'root'
 })
 export class CsvService {
-  private _escapeChar = `\\`;
-  private _chunkSize = 1024 * 1024 * 1; // 2MB
-  private _newline = '\r';
-
 
   getLineIndices(file: File): Promise<Array<number>> {
-    let lineIndices: Array<number> = [];
-    const utf8decoder = new TextDecoder();
-    const splitLinesPattern = /\r\n|\n|\r/;
     const reader = new Response(file).body.getReader();
+    const endOfLineRegex = /\r\n|\n|\r/g;
+    const utf8decoder = new TextDecoder();
     return new Promise(function (resolve, reject) {
-      // 64 kbytes (64 ko)
-      const processText = ({ done, value }) => {
+      let lineIndices: Array<number> = [0];
+      let lastIndex = 0;
+      let lastIndexInChunk = 0;
+      // reads 64 kbytes at a time
+      const processChunk = ({ done, value }) => {
         if (done) {
           resolve(lineIndices);
         } else {
           var text = utf8decoder.decode(value);
-          var re = /\r\n|\n|\r/g;
-          var match = re.exec(text);
+          var match = endOfLineRegex.exec(text);
           while (match != null) {
-            lineIndices.push(match.index);
-            match = re.exec(text);
+            lastIndexInChunk = lastIndex + match.index;
+            lineIndices.push(lastIndexInChunk);
+            match = endOfLineRegex.exec(text);
           }
-          return reader.read().then(processText.bind(this));
+          lastIndex = lastIndexInChunk;
+          return reader.read().then(processChunk.bind(this));
         }
       };
-      reader.read().then(processText);
+      reader.read().then(processChunk);
     })
   }
 
-  readFile(file: File) {
+  readChunk(file, start: number, end: number): Observable<Papa.ParseResult> {
+    const endOfLineRegex = /\r\n|\n|\r/g;
+    const reader = new FileReader();
     return Observable.create(observer => {
-      if (!(file instanceof File)) {
-        observer.error(new Error('Must be an instance of File'));
-        return;
-      }
-      Papa.parse(file, {
-        delimiter: '\t',
-        worker: false,
-        header: true,
-        chunkSize: this._chunkSize,
-        step: (results: Papa.ParseResult, parser: Papa.Parser) => observer.next(results),
-        complete: (results, file) => observer.complete()
-      } as Papa.ParseConfig);
+      reader.onloadend = (() => {
+        const text = (reader.result as string).split(endOfLineRegex);
+        observer.next(text);
+      });
+      reader.readAsText(file.slice(start, end));
     });
-
-  }
-
-  readChunk(file, start: number, end: number = start + this._chunkSize): Observable<Papa.ParseResult> {
-    return Observable.create(observer =>
-      file.text().then(text => {
-        Papa.parse(text.slice(start, end), {
-          delimiter: '\t',
-          worker: true,
-          header: start == 0 ? true : false,
-          complete: (result) => observer.next(result)
-        })
-      })
-    );
   }
 
 }

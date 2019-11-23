@@ -300,8 +300,8 @@
 <div class="content" role="main">
 
   <input type=file id="input-file" (change)="fileUploaded($event.target.files)"><br>
-  <cdk-virtual-scroll-viewport itemSize="50" class="example-viewport">
-    <div *cdkVirtualFor="let item of this" class="example-item">{{item?[0] || 'Loading...'}}</div>
+  <cdk-virtual-scroll-viewport itemSize="20" class="example-viewport">
+    <div *cdkVirtualFor="let item of this" class="example-item">{{item|| 'Loading...'}}</div>
   </cdk-virtual-scroll-viewport>
 
 </div>
