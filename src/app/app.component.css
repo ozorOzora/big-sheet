@@ -2,10 +2,11 @@
   height: 70vh;
   width: 100vW;
   border: 1px solid black;
+  overflow: scroll;
 }
 
 .example-item {
   height: 20px;
-  overflow:hidden;
+  overflow: hidden;
   white-space: nowrap;
 }

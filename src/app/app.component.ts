@@ -3,7 +3,6 @@ import { DataSource, CollectionViewer } from '@angular/cdk/collections';
 import { Observable, BehaviorSubject, Subscription } from 'rxjs';
 import { flatMap, tap, debounceTime } from 'rxjs/operators';
 import { CsvService } from './services/csv.service';
-import { ParseResult } from 'papaparse';
 
 @Component({
   selector: 'app-root',
@@ -17,6 +16,7 @@ export class AppComponent extends DataSource<Array<string>>{
   private _dataStream = new BehaviorSubject<Array<string>>([]);
   private _subscription = new Subscription();
   private _lineIndicies = [];
+  private _dataLength: number;
 
   constructor(private _csvService: CsvService) {
     super();
@@ -26,30 +26,22 @@ export class AppComponent extends DataSource<Array<string>>{
     this._file = files[0];
     this._csvService.getLineIndices(files[0]).then(lineIndicies => {
       this._lineIndicies = lineIndicies;
-      console.log(this._lineIndicies);
+      this._dataLength = this._lineIndicies.length;
       this._dataStream.next(Array(this._lineIndicies.length).fill(null));
     });
-
   }
 
   connect(collectionViewer: CollectionViewer): Observable<Array<any>> {
     let firstRow;
     this._subscription = collectionViewer.viewChange.pipe(
       debounceTime(100),
-      tap((range: { start: number; end: number; }) => { firstRow = range.start; }),
-      flatMap((range: { start: number; end: number; }) => this._csvService.readChunk(this._file, this._lineIndicies[range.start], this._lineIndicies[range.end+1]))
-    ).subscribe((result: ParseResult) => {
+      tap((range: { start: number; end: number; }) => { range.end = Math.min(range.end, this._dataLength) }),
+      flatMap((range: { start: number; end: number; }) => {
+        return this._csvService.readChunk(this._file, this._lineIndicies[range.start], this._lineIndicies[range.end - 1]);
+      })
+    ).subscribe((result: Array<string>) => {
       let data = Array(this._lineIndicies.length).fill(null);
-      const newData = result;
-      //const newData = result.data.map((d) => {
-        //const keys = Object.keys(d);
-        //let datum = {};
-        //for (var i = 0; i < keys.length; ++i)
-        //  datum[this._headers[i]] = d[keys[i]];
-        //return datum;
-      //  return d[0];
-      //});
-      data.splice(firstRow, newData.length, ...newData);
+      data.splice(firstRow, result.length, ...result);
       this._dataStream.next(data);
     });
     return this._dataStream;
